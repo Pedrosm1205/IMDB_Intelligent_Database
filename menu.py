@@ -4,9 +4,10 @@ import spacy
 import nltk
 from nltk import word_tokenize, pos_tag, ne_chunk
 from nltk.tree import Tree
+from difflib import get_close_matches
 from pyswip import Prolog
 
-nlp = spacy.load("en_core_web_md")  # index e melhorar queries ordem de pesquisa
+nlp = spacy.load("en_core_web_md") 
 
 patterns = {
     "actor_movies": ("In which movies did the actor [PERSON] participate?",1,0,0),
@@ -40,6 +41,18 @@ def extract_persons(text):
     persons = [ent.text for ent in doc.ents if ent.label_ == "PERSON"]
     return list(set(persons)) 
 
+
+def most_similar_name(person):
+    matches = get_close_matches(person, actor_list, n=1)
+    return matches[0] if matches else None
+
+def check_names(persons):
+    for i in range(len(persons)):
+        id = list(prolog.query(f"name(AID,'{persons[i]}')"))
+        if len(id) == 0:
+            persons[i] = most_similar_name(persons[i])
+    return persons
+
 def extract_movies(text):
     doc = nlp(text)
     return [ent.text for ent in doc.ents if ent.label_ in ("WORK_OF_ART", "EVENT")]
@@ -58,7 +71,7 @@ def match_pattern(user_input,nperson,nmovie,nyear):
 
 def query_prolog(query_string):
     print(f"Prolog query: {query_string}")
-    results = prolog.query(query_string)
+    results = prolog.query("time(("+query_string+")).")
     return results
 
 def ask_birth_year(person, options, parent):
@@ -92,10 +105,11 @@ def ask_birth_year(person, options, parent):
 def build_prolog_query(user_input,gui_root):
     print(user_input)
     persons = extract_persons(user_input)
+    persons = check_names(persons)
     check_person = ""
     idx_check = 0
     for person in persons:
-        same_name = list(query_prolog(f"findall(Year,(name(AID,'{person}'),birth(AID,Year)),List)."))
+        same_name = list(prolog.query(f"findall(Year,(name(AID,'{person}'),birth(AID,Year)),List)."))
         if same_name and len(list(filter(lambda x: x != 'null', same_name[0]['List']))) > 1:
             options = [year for year in same_name[0]['List'] if year != 'null']
             year = ask_birth_year(person, options, gui_root)
@@ -117,49 +131,49 @@ def build_prolog_query(user_input,gui_root):
     print("pattern:",pattern)
 
     if pattern == "actor_movies":
-        return f"name(AID, '{persons[0]}'),"+check_person+f"findall(Title,(actor(TID,AID),movie(TID,Title,_,_)),List)."
+        return f"name(AID, '{persons[0]}'),"+check_person+f"findall(Title,(actor(TID,AID),movie(TID,Title,_,_)),List)"
     elif pattern == "movies_by_year":
-        return f"findall(Movie,movie(_,Movie, {years[0]},_),List)."
+        return f"findall(Movie,movie(_,Movie, {years[0]},_),List)"
     elif pattern == "person_birth":
-        return f"name(AID,'{persons[0]}'),birth(AID,Year)."
+        return f"name(AID,'{persons[0]}'),birth(AID,Year)"
     elif pattern == "movies_by_actor_count":
-        return f"name(AID, '{persons[0]}'),"+check_person+f"findall(TID,actor(TID,AID),List),length(List,Count)."
+        return f"name(AID, '{persons[0]}'),"+check_person+f"findall(TID,actor(TID,AID),List),length(List,Count)"
     elif pattern == "movie_genres":
-        return f"movie(TID,'{movies[0]}',_,_),"+f"findall(G,genre(TID,G),List)."
+        return f"movie(TID,'{movies[0]}',_,_),"+f"findall(G,genre(TID,G),List)"
     elif pattern == "movie_cast":
-        return f"movie(TID,'{movies[0]}',_,_),"+f"findall(Name,(actor(TID,AID),name(AID,Name)),List)."
+        return f"movie(TID,'{movies[0]}',_,_),"+f"findall(Name,(actor(TID,AID),name(AID,Name)),List)"
     elif pattern == "movie_year":
-        return f"movie(_,'{movies[0]}',Year,_)."
+        return f"movie(_,'{movies[0]}',Year,_)"
     elif pattern == "actor_rating": 
-        return f"average_actor_rating('{persons[0]}', AvgRounded)."
+        return f"average_actor_rating('{persons[0]}', AvgRounded)"
     elif pattern == "actor_age_release":
-        return f"actor_age_at_release('{persons[0]}','{movies[0]}',Age)."
+        return f"actor_age_at_release('{persons[0]}','{movies[0]}',Age)"
     elif pattern == "top_actors": 
-        return f"setof(Name,AID^(name(AID,Name),top_actor(AID)),List)."
+        return f"setof(Name,AID^(name(AID,Name),top_actor(AID)),List)"
     elif pattern == "dead_movies": 
-        return f"setof(Title,TID^X^Y^Z^(movie(TID,Title,X,Y),actor(TID,Z),dead_movie(TID)),List)."
+        return f"setof(Title,TID^X^Y^Z^(movie(TID,Title,X,Y),actor(TID,Z),dead_movie(TID)),List)"
     elif pattern == "worked_together": 
-        return f"name(AID, '{persons[0]}'),"+check_person+f"setof(Actor,CAID^(collab(AID,CAID),name(CAID,Actor)),List)."
+        return f"name(AID, '{persons[0]}'),"+check_person+f"setof(Actor,CAID^(collab(AID,CAID),name(CAID,Actor)),List)"
     elif pattern == "commom_movies": 
-        return f"name(AID, '{persons[0]}'),name(AID1,'{persons[1]}'),"+check_person+f"setof(Title,TID^(collab_movie(AID,AID1,TID),movie(TID,Title,_,_)),List)."    
+        return f"name(AID, '{persons[0]}'),name(AID1,'{persons[1]}'),"+check_person+f"setof(Title,TID^(collab_movie(AID,AID1,TID),movie(TID,Title,_,_)),List)"    
     elif pattern == "actor_death":
-        return f"name(AID,'{persons[0]}'),"+check_person+"death(AID,Year)."
+        return f"name(AID,'{persons[0]}'),"+check_person+"death(AID,Year)"
     elif pattern == "actor_movies_year": 
-        return f"name(AID, '{persons[0]}'),"+check_person+f"setof(Title,TID^(actor(TID,AID),movie(TID,Title,{years[0]},_)),List)."
+        return f"name(AID, '{persons[0]}'),"+check_person+f"setof(Title,TID^(actor(TID,AID),movie(TID,Title,{years[0]},_)),List)"
     elif pattern == "actors_born_same_year":
-        return f"name(AID, '{persons[0]}'),"+check_person+f"findall(Name,(birth(AID1,Year),birth(AID,Year),AID \= AID1,name(AID1,Name)),List)."
+        return f"name(AID, '{persons[0]}'),"+check_person+f"findall(Name,(birth(AID1,Year),birth(AID,Year),AID \= AID1,name(AID1,Name)),List)"
     elif pattern == "actor_languages": 
-        return f"name(AID, '{persons[0]}'),"+check_person+f"setof(Language,TID^(actor(TID,AID),language(TID,Language)),List)."
+        return f"name(AID, '{persons[0]}'),"+check_person+f"setof(Language,TID^(actor(TID,AID),language(TID,Language)),List)"
     elif pattern == "erdos":
-        return f"name(AID, '{persons[0]}'),name(AID1,'{persons[1]}')"+check_person+"erdos(AID,AID1,E)."
-    elif pattern == "top_movies_actor": #!
-        return f"name(AID, '{persons[0]}'),"+check_person+f"actor_top_movies(AID,List)."
+        return f"name(AID, '{persons[0]}'),name(AID1,'{persons[1]}')"+check_person+"erdos(AID,AID1,E)"
+    elif pattern == "top_movies_actor": 
+        return f"name(AID, '{persons[0]}'),"+check_person+f"actor_top_movies(AID,List)"
     elif pattern == "only_one_lang_actors": 
-        return "findall(Name,(name(AID,Name),only_lang_actor(AID)),List)."
+        return "findall(Name,(name(AID,Name),only_lang_actor(AID)),List)"
     elif pattern == "actor_most_genre":
-        return f"name(AID, '{persons[0]}'),"+check_person+"mc_genre_actor(AID,Genre)."
+        return f"name(AID, '{persons[0]}'),"+check_person+"mc_genre_actor(AID,Genre)"
     elif pattern == "actor_genre_movie": 
-        return f"name(AID, '{persons[0]}'),"+check_person+"genre_movie_actor(AID,List)."
+        return f"name(AID, '{persons[0]}'),"+check_person+"genre_movie_actor(AID,List)"
     else:
         return "Sorry, I couldn't understand your question."
 
@@ -167,6 +181,7 @@ def build_prolog_query(user_input,gui_root):
 prolog = Prolog()
 prolog.consult("start.pl")
 
+actor_list = list(prolog.query("setof(Name,AID^name(AID,Name),List)."))[0]['List']
 
 def run_gui():
     root = tk.Tk()

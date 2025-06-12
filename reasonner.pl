@@ -1,3 +1,5 @@
+:- dynamic edge/2.
+
 % idade do actor na estreia de um filme
 actor_age_at_release(Title, Name, Age) :-
     movie(TID, Title, ReleasedYear, _),
@@ -31,16 +33,14 @@ dead_movie(TID) :- findall(AID,actor(TID,AID),Actors),check_dead(Actors).
 % top actor só participa em que filmes de rating elevado
 top_actor(AID) :- actor(_,AID), \+ (actor(TID,AID),movie(TID,_,_,_),rating(TID,R), R < 7.5).
 
-% atores que colaboraram
-collab(AID,CAID) :- actor(TID,AID),actor(TID,CAID),AID \= CAID.
-
 % filmes que dois atores colaboraram
 collab_movie(AID,CAID,TID) :- actor(TID,AID),actor(TID,CAID).
 
+collab(AID,CAID) :- actor(TID,AID),actor(TID,CAID),AID \= CAID.
 
 % usar bfs - edge -> collab
 erdos(X,Y,E) :- bfs(Y,5,[[X]],Path),!,length(Path,Len),E is Len-1.
-erdos(_,_,E) :- E is "No connection".
+erdos(_,_,E) :- E = "No connection".
 
 bfs(Goal,_,[[Goal|Path]|_],[Goal|Path]).
 bfs(Goal,Limit,[Path|Paths],Sol) :- length(Path,L),
@@ -49,7 +49,14 @@ bfs(Goal,Limit,[Path|Paths],Sol) :- length(Path,L),
                                     append(Paths,ExpPaths,Paths2),
                                     bfs(Goal,Limit,Paths2,Sol),!.
 
-expand([First|Path],ExpPaths) :- findall([Next,First|Path],(collab(First,Next),not(member(Next,[First|Path]))),ExpPaths).
+check_collab(AID,CAID) :- (edge(AID,CAID) -> true ; 
+                           actor(TID,AID),actor(TID,CAID),AID \= CAID,
+                           assertz(edge(AID,CAID)),
+                           assertz(edge(CAID,AID))
+                           ).
+
+
+expand([First|Path],ExpPaths) :- findall([Next,First|Path],(check_collab(First,Next),not(member(Next,[First|Path]))),ExpPaths).
 
 
 actor_top_movies(AID,List) :- setof(Title,TID^(actor(TID,AID),rating(TID,R),R>=7.5,movie(TID,Title,_,_)),List).
